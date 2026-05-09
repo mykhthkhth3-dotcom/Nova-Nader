@@ -1,0 +1,88 @@
+name: Build NOVA Engine APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # تشغيل يدوي من GitHub
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # ── 1. تحميل الكود ──
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # ── 2. إعداد Java 17 ──
+    - name: Setup JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    # ── 3. إعداد Android SDK + NDK ──
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install NDK and CMake
+      run: |
+        sdkmanager "ndk;25.2.9519653"
+        sdkmanager "cmake;3.22.1"
+        echo "NDK installed successfully"
+
+    # ── 4. صلاحيات Gradle ──
+    - name: Grant Gradle Permissions
+      run: chmod +x android/gradlew
+
+    # ── 5. Cache للتسريع ──
+    - name: Cache Gradle packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    # ── 6. بناء Debug APK ──
+    - name: Build Debug APK
+      working-directory: android
+      run: ./gradlew assembleDebug --stacktrace
+      env:
+        ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/25.2.9519653
+
+    # ── 7. رفع الـ APK كـ Artifact ──
+    - name: Upload Debug APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: nova-engine-debug
+        path: android/app/build/outputs/apk/debug/app-debug.apk
+        retention-days: 30
+
+    # ── 8. بناء Release APK (اختياري) ──
+    - name: Build Release APK
+      working-directory: android
+      run: ./gradlew assembleRelease --stacktrace
+      env:
+        ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/25.2.9519653
+      continue-on-error: true  # لا يوقف العملية إذا فشل
+
+    - name: Upload Release APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: nova-engine-release
+        path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+        retention-days: 30
+      continue-on-error: true
+
+    # ── 9. طباعة معلومات الـ APK ──
+    - name: APK Info
+      run: |
+        echo "✅ Build Complete!"
+        ls -lh android/app/build/outputs/apk/debug/ 2>/dev/null || echo "Debug APK not found"
+        ls -lh android/app/build/outputs/apk/release/ 2>/dev/null || echo "Release APK not found"
